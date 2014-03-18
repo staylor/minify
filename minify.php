@@ -16,11 +16,11 @@ define( 'MINIFY_INCR_KEY', MINIFY_SLUG . ':incr' );
 define( 'MINIFY_INCR_KEY_PREV', MINIFY_SLUG . ':prev-incr' );
 
 class MinifyAdmin {
-    function init() {
+    static function init() {
         add_action( 'admin_menu', array( 'MinifyAdmin', 'page' ) );
     }
     
-    function page() {
+    static function page() {
         $hook = add_menu_page( 
             __( 'Minify', MINIFY_SLUG ), 
             __( 'Minify', MINIFY_SLUG ),
@@ -31,7 +31,7 @@ class MinifyAdmin {
         add_action( "load-$hook", array( 'MinifyAdmin', 'load' ) );
     }
     
-    function load() {
+    static function load() {
         if ( isset( $_POST['incr'] ) ) {
             $incr = get_site_option( MINIFY_INCR_KEY );
             update_site_option( MINIFY_INCR_KEY_PREV, $incr );
@@ -41,7 +41,7 @@ class MinifyAdmin {
         }
     }
     
-    function admin() {
+    static function admin() {
         $incr = get_site_option( MINIFY_INCR_KEY );
     ?>
     <div class="wrap">
@@ -88,7 +88,7 @@ if ( !is_admin() && MINIFY_ENABLED ) {
             $hash = md5( join( '', $scripts ) );
 
         $locking = false;
-        $hash_lock_key = 'minify-js-locked-' . $hash;
+        $hash_lock_key = 'minify-js-locked-' . substr( $hash, 0, 30);
         $locked = get_site_transient( $hash_lock_key );
         
         $incr = get_site_option( MINIFY_INCR_KEY );
@@ -99,6 +99,7 @@ if ( !is_admin() && MINIFY_ENABLED ) {
             $incr = $_SERVER['REQUEST_TIME']; 
             set_site_transient( $hash_lock_key, 1 );
             set_site_transient( MINIFY_INCR_KEY, $incr );
+            add_site_option( MINIFY_INCR_KEY, $incr );
         }
         
         if ( !empty( $locked ) && !empty( $prev ) )
@@ -106,7 +107,7 @@ if ( !is_admin() && MINIFY_ENABLED ) {
         
         $rname = minify_home_url( '/wp-content/cache/' . MINIFY_SLUG . '-' . $hash . '-' . $incr . '.js' );
         
-        $transient = get_site_transient( 'minify:scripts-output:' . $hash . ':' . $incr );
+        $transient = get_site_transient( 'minify:scripts-output:' . substr( $hash, 0, 15 ) . ':' . $incr );
         if ( empty( $transient ) ) {
             $locking = true;
             set_site_transient( $hash_lock_key, 1 );
@@ -145,11 +146,11 @@ if ( !is_admin() && MINIFY_ENABLED ) {
             $min = trim( JSMin::minify( $raw ) );
 
             update_site_option( 'minify:scripts:' . $hash . ':' . $incr, $added );
-            set_site_transient( 'minify:scripts-output:' . $hash . ':' . $incr, $min );
+            set_site_transient( 'minify:scripts-output:' . substr( $hash, 0, 15 ) . ':' . $incr, $min );
         }
         
         if ( $output ) {
-            $min = get_site_transient( 'minify:scripts-output:' . $hash . ':' . $incr );          
+            $min = get_site_transient( 'minify:scripts-output:' . substr( $hash, 0, 15 ) . ':' . $incr );          
             echo $min;
         } else {           
             printf( $js_fmt, $rname );             
@@ -169,7 +170,7 @@ if ( !is_admin() && MINIFY_ENABLED ) {
             $hash = md5( join( '', $styles ) );
 
         $locking = false;
-        $hash_lock_key = 'minify-css-locked-' . $hash;        
+        $hash_lock_key = 'minify-css-locked-' . substr( $hash, 0, 30 );        
         $locked = get_site_transient( $hash_lock_key );
         
         $incr = get_site_option( MINIFY_INCR_KEY );
@@ -180,6 +181,7 @@ if ( !is_admin() && MINIFY_ENABLED ) {
             $incr = $_SERVER['REQUEST_TIME']; 
             set_site_transient( $hash_lock_key, 1 );
             set_site_transient( MINIFY_INCR_KEY, $incr );
+            add_site_option( MINIFY_INCR_KEY, $incr );
         }
         
         if ( !empty( $locked ) && !empty( $prev ) )
@@ -187,7 +189,7 @@ if ( !is_admin() && MINIFY_ENABLED ) {
         
         $rname = minify_home_url( '/wp-content/cache/' . MINIFY_SLUG . '-' . $hash . '-' . $incr . '.css' );;
         
-        $transient = get_site_transient( 'minify:styles-output:' . $hash . ':' . $incr );
+        $transient = get_site_transient( 'minify:styles-output:' . substr( $hash, 0, 15 ) . ':' . $incr );
         if ( empty( $transient ) ) {
             $locking = true;
             set_site_transient( $hash_lock_key, 1 );
@@ -227,11 +229,11 @@ if ( !is_admin() && MINIFY_ENABLED ) {
             $min = trim( CssMin::minify( $raw, array( 'ConvertLevel3Properties' => true ) ) );
             
             update_site_option( 'minify:styles:' . $hash . ':' . $incr, $added );
-            set_site_transient( 'minify:styles-output:' . $hash . ':' . $incr, $min );
+            set_site_transient( 'minify:styles-output:' . substr( $hash, 0, 15 ) . ':' . $incr, $min );
         }
         
         if ( $output ) {
-            $min = get_site_transient( 'minify:styles-output:' . $hash . ':' . $incr );
+            $min = get_site_transient( 'minify:styles-output:' . substr( $hash, 0, 15 ) . ':' . $incr );
             echo $min;
         } else {
             printf( $css_fmt, $rname );             
@@ -303,7 +305,7 @@ if ( !is_admin() && MINIFY_ENABLED ) {
              * Styles exist, strip them from the buffer
              *
              */
-            $html = preg_replace( $css, '', $html );
+            $html = preg_replace_callback( $css, 'minify_replace_callback', $html );
             /**
              * Create MD5 hash of all file names in order
              *
@@ -324,7 +326,7 @@ if ( !is_admin() && MINIFY_ENABLED ) {
              * Scripts exist, strip them from the buffer
              *
              */
-            $html = preg_replace( $js, '', $html );
+            $html = preg_replace_callback( $js, 'minify_replace_callback', $html );
             /**
              * Create MD5 hash of all file names in order
              *
@@ -332,8 +334,11 @@ if ( !is_admin() && MINIFY_ENABLED ) {
             $hash = minify_hash_files( $scripts[1] );
             minify_do_scripts( $hash, $scripts[1] );
         }
-        echo preg_replace( array( '/[\n\n|\r\r]+/', '/\t/' ), array( "\n", '' ), $html );
+        echo preg_replace( array( '/[\n\n\r\r]+/', '/\t/' ), array( "\n", '' ), $html );
     }
     add_action( 'wp_head', 'minify_combine_scripts', 10000 );
     add_action( 'wp_footer', 'minify_combine_scripts', 2000 );
+    function minify_replace_callback( $files ) {
+        return minify_check_path( $files[1] ) ? '' : $files[0];
+    }
 }
