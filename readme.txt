@@ -16,6 +16,9 @@ Automagically concatenates JS and CSS files that are output in wp_head() and wp_
 New .htaccess rule!
 <code>RewriteRule ^([_0-9a-zA-Z-]+)?/?wp-content/cache/minify-(.+)-(.*).(css|js)$ /wp-content/plugins/minify/make.php?hash=$2&type=$4&incr=$3&site=$1 [L]</code>
 
+Nginx - nginx.conf rule
+<code>rewrite ^/([_0-9a-zA-Z-]+)?/?wp-content/cache/minify-(.+)-(.*).(css|js)$ /wp-content/plugins/minify/make.php?hash=$2&type=$4&incr=$3&site=$1 last;</code>
+
 == Installation ==
 
 You MUST add this rewrite rule to your .htaccess file or httpd.conf file and then restart your server:
