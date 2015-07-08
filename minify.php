@@ -3,7 +3,7 @@
 Plugin Name: Minify
 Plugin URI: http://emusic.com/
 Description: A minimal yet powerful CSS / JS minification plugin for WordPress
-Version: 0.2
+Version: 0.3
 Author: Scott Taylor and William P. Davis
 Author URI: http://scotty-t.com
 License: GPLv2 or later
