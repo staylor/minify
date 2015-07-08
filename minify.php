@@ -4,336 +4,260 @@ Plugin Name: Minify
 Plugin URI: http://emusic.com/
 Description: A minimal yet powerful CSS / JS minification plugin for WordPress
 Version: 0.2
-Author: Scott Taylor
+Author: Scott Taylor and William P. Davis
 Author URI: http://scotty-t.com
 License: GPLv2 or later
-*/	
+*/
 
-define( 'MINIFY_HOST', $_SERVER['HTTP_HOST'] );
+/*
+ * @TODO: Cache headers (make sure this works with Batcache)
+ * @TODO: Make the minification happen by firing off an async HTTP call to the endpoint, since we're pulling in remote scripts
+ * @TODO: If WP adds additional required files for the HTTP API this will break.
+ * @TODO: Delete unused lists of files from the site options table?
+ */
+
 define( 'MINIFY_SLUG', 'minify' );
-define( 'MINIFY_ENABLED', 1 );
+if( !defined( 'MINIFY_ENABLED' ) )
+	define( 'MINIFY_ENABLED', 1 );
 define( 'MINIFY_INCR_KEY', MINIFY_SLUG . ':incr' );
 define( 'MINIFY_INCR_KEY_PREV', MINIFY_SLUG . ':prev-incr' );
 
-class MinifyAdmin {
-    function init() {
-        add_action( 'admin_menu', array( 'MinifyAdmin', 'page' ) );
-    }
-    
-    function page() {
-        $hook = add_menu_page( 
-            __( 'Minify', MINIFY_SLUG ), 
-            __( 'Minify', MINIFY_SLUG ),
-            'manage_options', 
-            MINIFY_SLUG, 
-            array( 'MinifyAdmin', 'admin' ) 
-        );
-        add_action( "load-$hook", array( 'MinifyAdmin', 'load' ) );
-    }
-    
-    function load() {
-        if ( isset( $_POST['incr'] ) ) {
-            $incr = get_site_option( MINIFY_INCR_KEY );
-            update_site_option( MINIFY_INCR_KEY_PREV, $incr );
-            update_site_option( MINIFY_INCR_KEY, trim( $_POST['incr'] ) );
-            wp_redirect( menu_page_url( MINIFY_SLUG, false ) );  
-            exit();
-        }
-    }
-    
-    function admin() {
-        $incr = get_site_option( MINIFY_INCR_KEY );
-    ?>
-    <div class="wrap">
-        <h2>Minify</h2>
-        <form action="<?php menu_page_url( MINIFY_SLUG ) ?>" method="post">
-            <p>Cache-buster value<p>
-            <p><input type="text" name="incr" class="widefat" value="<?php echo esc_attr( $incr ) ?>" /></p>
-            <p><input type="submit" value="Change Cache Buster"/></p>
-        </form>
-    </div>    
-    <?php
-    }
-}
-MinifyAdmin::init();
+if( is_admin() )
+	require_once( plugin_dir_path( __FILE__ ) . '/admin.php' );
 
-function minify_home_url( $path ) {
-	if ( function_exists( 'home_url' ) )
-		return home_url( $path );
+if( !is_admin() && defined( 'MINIFY_ENABLED' ) && MINIFY_ENABLED )
+	$minify = new Minify;
+
+class Minify {
 	
-	return '//' . MINIFY_HOST . '/' . ltrim( $_GET['site'], '/' ) . $path;
-}
-
-if ( !is_admin() && MINIFY_ENABLED ) {
-    /**
-     * This will be used to pretty-print the CSS declarations
-     * the WP-generated code is inconsistent (OCD, I know)
-     *
-     */
-    $css_fmt = "\n<link rel=\"stylesheet\" href=\"%s\" />\n";    
-    /**
-     * This will be used to pretty-print the JS declarations
-     * the WP-generated code is inconsistent (OCD, I know)
-     *
-     */
-    $js_fmt = "\n<script type=\"text/javascript\" src=\"%s\"></script>\n";
-    
-    function minify_do_scripts( $hash = '', $scripts = array(), $output = false ) {
-        global $js_fmt;
-        
-        if ( empty( $scripts ) )
-            return;
-        
-        if ( empty( $hash ) )
-            $hash = md5( join( '', $scripts ) );
-
-        $locking = false;
-        $hash_lock_key = 'minify-js-locked-' . $hash;
-        $locked = get_site_transient( $hash_lock_key );
-        
-        $incr = get_site_option( MINIFY_INCR_KEY );
-        $prev = get_site_option( MINIFY_INCR_KEY_PREV );
-        
-        if ( empty( $incr ) ) {
-            $locking = true;
-            $incr = $_SERVER['REQUEST_TIME']; 
-            set_site_transient( $hash_lock_key, 1 );
-            set_site_transient( MINIFY_INCR_KEY, $incr );
-        }
-        
-        if ( !empty( $locked ) && !empty( $prev ) )
-            $incr = $prev;
-        
-        $rname = minify_home_url( '/wp-content/cache/' . MINIFY_SLUG . '-' . $hash . '-' . $incr . '.js' );
-        
-        $transient = get_site_transient( 'minify:scripts-output:' . $hash . ':' . $incr );
-        if ( empty( $transient ) ) {
-            $locking = true;
-            set_site_transient( $hash_lock_key, 1 );
-
-            $buffer = array();
-            $added = array();
-            foreach ( $scripts as $script ) {
-                /**  
-                 * Get filesystem path to JS file
-                 *
-                 */				
-                $file = minify_check_path( $script );
-
-                if ( $file ) {
-                    /**  
-                     * Local file, add contents to response buffer
-                     *
-                     */		
-                    $added[] = $file;
-                    $buffer[] = file_get_contents( $file );
-                } else {
-                    /**  
-                     * Remote file, output <script>
-                     *
-                     */						
-                    printf( $js_fmt, $script ); echo "\n";
-                }	
-            }
-            require_once( 'JSMin.php' );
-
-            /**
-             * only require JSMin when we really need it
-             *
-             */        
-            $raw = trim( join( '', $buffer ) );
-            $min = trim( JSMin::minify( $raw ) );
-
-            update_site_option( 'minify:scripts:' . $hash . ':' . $incr, $added );
-            set_site_transient( 'minify:scripts-output:' . $hash . ':' . $incr, $min );
-        }
-        
-        if ( $output ) {
-            $min = get_site_transient( 'minify:scripts-output:' . $hash . ':' . $incr );          
-            echo $min;
-        } else {           
-            printf( $js_fmt, $rname );             
-        }
-        
-        if ( $locking )
-            delete_site_transient( $hash_lock_key );
-    }
-    
-    function minify_do_styles( $hash = 'styles', $styles = array(), $output = false ) {
-        global $css_fmt;
-        
-        if ( empty( $styles ) )
-            return;
-        
-        if ( empty( $hash ) )
-            $hash = md5( join( '', $styles ) );
-
-        $locking = false;
-        $hash_lock_key = 'minify-css-locked-' . $hash;        
-        $locked = get_site_transient( $hash_lock_key );
-        
-        $incr = get_site_option( MINIFY_INCR_KEY );
-        $prev = get_site_option( MINIFY_INCR_KEY_PREV );
-        
-        if ( empty( $incr ) ) {
-            $locking = true;
-            $incr = $_SERVER['REQUEST_TIME']; 
-            set_site_transient( $hash_lock_key, 1 );
-            set_site_transient( MINIFY_INCR_KEY, $incr );
-        }
-        
-        if ( !empty( $locked ) && !empty( $prev ) )
-            $incr = $prev;
-        
-        $rname = minify_home_url( '/wp-content/cache/' . MINIFY_SLUG . '-' . $hash . '-' . $incr . '.css' );;
-        
-        $transient = get_site_transient( 'minify:styles-output:' . $hash . ':' . $incr );
-        if ( empty( $transient ) ) {
-            $locking = true;
-            set_site_transient( $hash_lock_key, 1 );
-            
-            $buffer = array();
-            $added = array();
-            foreach ( $styles as $style ) {
-                /**  
-                 * Get filesystem path to CSS file
-                 *
-                 */
-                $file = minify_check_path( $style );
-
-                if ( $file ) {
-                    /**  
-                     * Local file, add contents to response buffer
-                     *
-                     */	
-                    $added[] = $file;
-                    $buffer[] = file_get_contents( $file );
-                } else {
-                    /**  
-                     * Remote file, output <link>
-                     *
-                     */					
-                    printf( $css_fmt, $style ); echo "\n";
-                }	
-            }
-
-            /**
-             * only require CSSMin when we really need it
-             *
-             */
-            require_once( 'CSSMin.php' );
-
-            $raw = trim( join( '', $buffer ) );
-            $min = trim( CssMin::minify( $raw, array( 'ConvertLevel3Properties' => true ) ) );
-            
-            update_site_option( 'minify:styles:' . $hash . ':' . $incr, $added );
-            set_site_transient( 'minify:styles-output:' . $hash . ':' . $incr, $min );
-        }
-        
-        if ( $output ) {
-            $min = get_site_transient( 'minify:styles-output:' . $hash . ':' . $incr );
-            echo $min;
-        } else {
-            printf( $css_fmt, $rname );             
-        }
-        
-        if ( $locking )
-            delete_site_transient( $hash_lock_key );
-    }
-    
-
-    /**
-     *	Turn on output buffering in wp_head() / wp_footer
-     *	this action has highest priority
-     *
-     */
-    function minify_start_buffer() {
-        ob_start();
-    }
-    add_action( 'wp_head', 'minify_start_buffer', 0 );
-    add_action( 'wp_footer', 'minify_start_buffer', 0 );
-
-    function minify_check_path( $file ) {
-        $relative = parse_url( $file, PHP_URL_PATH );
-        
-        if ( 0 !== strpos( $relative, '/wp-' ) )
-            $relative = substr( $relative, strpos( $relative, '/wp-' ) );
-        
-        $full = $_SERVER['DOCUMENT_ROOT'] . $relative;
-        if ( is_file( $full ) )
-            return $full;
-
-        $wp = rtrim( ABSPATH, '/' ) . $relative;
-        if ( is_file( $wp ) )
-            return $wp;
-
-        return false;
-    }
-
-    function minify_hash_files( $files ) {
-        $added = array();
-        foreach ( $files as $f ) {
-            $file = minify_check_path( $f );
-
-            if ( $file ) {
-                $added[] = $file;
-            }
-        }
-        
-        return md5( join( '', $added ) );
-    }
-
-    function minify_combine_scripts() {
-        $styles = array();
-        $scripts = array();
-        /**
-         * Extract the buffer's contents (from wp_head() or wp_footer())
-         *
-         */
-        $html = ob_get_clean();
-        /**
-         * Match all <link>s that are stylesheets
-         *
-         */
-        $css = '/<link.*?stylesheet.*?href=[\'|"]([^\'|"]+)[\'|"][^>]+?>/';
-        preg_match_all( $css, $html, $styles );
-        
-        if ( !empty( $styles[1] ) ) {
-            /**
-             * Styles exist, strip them from the buffer
-             *
-             */
-            $html = preg_replace( $css, '', $html );
-            /**
-             * Create MD5 hash of all file names in order
-             *
-             */
-            $hash = minify_hash_files( $styles[1] );
-            minify_do_styles( $hash, $styles[1] );
-        }
+	/**
+	 * These will be used to pretty-print the CSS and JS declarations
+	 * the WP-generated code is inconsistent (OCD, I know)
+	 *
+	 */
+	public $css_fmt = "\n<link rel=\"stylesheet\" href=\"%s\" />\n";
+	public $js_fmt = "\n<script type=\"text/javascript\" src=\"%s\"></script>\n";
 	
-        /**
-         * Match all <script>s
-         *
-         */
-        $js = '/<script.*src=[\'|"]([^"|\']+)[\'|"].*><\/script>/';
-        preg_match_all( $js, $html, $scripts );
+	/**
+	 * Register these actions as soon as we load the plugin
+	 */
+	function __construct() {
 
-        if ( !empty( $scripts[1] ) ) {
-            /**
-             * Scripts exist, strip them from the buffer
-             *
-             */
-            $html = preg_replace( $js, '', $html );
-            /**
-             * Create MD5 hash of all file names in order
-             *
-             */
-            $hash = minify_hash_files( $scripts[1] );
-            minify_do_scripts( $hash, $scripts[1] );
-        }
-        echo preg_replace( array( '/[\n\n|\r\r]+/', '/\t/' ), array( "\n", '' ), $html );
-    }
-    add_action( 'wp_head', 'minify_combine_scripts', 10000 );
-    add_action( 'wp_footer', 'minify_combine_scripts', 2000 );
+		//At the highest priority, before anything is printed out, start the output
+		//buffer that we'll check for scripts
+		add_action( 'wp_head', array( $this, 'start_buffer' ), 0 );
+		add_action( 'wp_footer', array( $this, 'start_buffer' ), 0 );
+
+		//7 9s
+		//As the (hopefully) last action, grab the output, find the scripts and styles
+		//and replace them
+		add_action( 'wp_head', array( $this, 'replace' ), 99999999 );
+		add_action( 'wp_footer', array( $this, 'replace' ), 99999999 );
+
+	}
+	
+	/** 
+	 * Check the output of wp_head and wp_footer for styles and scripts
+	 * and replace them with the single minified file
+	 */
+	public function replace() {
+
+		$styles = array();
+		$scripts = array();
+
+		/**
+		 * Extract the buffer's contents (from wp_head() or wp_footer())
+		 *
+		 */
+		$html = ob_get_clean();
+		
+		/**
+		 * Match all <link>s that are stylesheets
+		 * @TODO: Only match if media="all"
+		 *
+		 */
+		$css = '/<link.*?stylesheet.*?href=[\'|"]([^\'|"]+)[\'|"][^>]+?>/';
+		preg_match_all( $css, $html, $styles );
+		
+		if ( !empty( $styles[1] ) ) {
+			/**
+			 * Styles exist, strip them from the buffer
+			 *
+			 */
+			$html = preg_replace( $css, '', $html );
+			/**
+			 * Create MD5 hash of all file names in order
+			 *
+			 */
+			$hash = $this->hash_files( $styles[1] );
+			$styles = $this->combine( $hash, $styles[1], 'css' );
+		}
+	
+		/**
+		 * Match all <script>s
+		 *
+		 */
+		$js = '/<script.*src=[\'|"]([^"|\']+)[\'|"].*><\/script>/';
+		preg_match_all( $js, $html, $scripts );
+
+		if ( !empty( $scripts[1] ) ) {
+			/**
+			 * Scripts exist, strip them from the buffer
+			 *
+			 */
+			$html = preg_replace( $js, '', $html );
+			/**
+			 * Create MD5 hash of all file names in order
+			 *
+			 */
+			$hash = $this->hash_files( $scripts[1] );
+			$scripts = $this->combine( $hash, $scripts[1], 'js' );
+			
+		}
+		
+		/* Print the scripts first if in the header, last if in the footer */
+		if( doing_action( 'wp_footer' ) ) {
+			$html .= $styles . $scripts;
+		} else {
+			$html = $styles . $scripts . $html;
+		}
+		
+		echo $html;
+
+	}
+	
+	/**
+	 * One function to combine the JS or CSS files
+	 *
+	 */
+	public function combine( $hash = '', $files = array(), $type = 'js', $output = false ) {
+	
+		if( !in_array( $type, array( 'js', 'css' ) ) )
+			return false;
+	
+		//No files brah!
+		if( empty( $files ) )
+			return false;
+		
+		//Get the hash for the files
+		if( empty( $hash ) )
+			$hash = $this->hash_files( $files );
+			
+		$locking = false;
+		$hash_lock_key = 'minify-' . $type . '-locked-' . $hash;
+		$locked = get_site_transient( $hash_lock_key );
+		
+		$incr = get_site_option( MINIFY_INCR_KEY );
+		$prev = get_site_option( MINIFY_INCR_KEY_PREV );
+		
+		if ( empty( $incr ) ) {
+			$locking = true;
+			$incr = $_SERVER[ 'REQUEST_TIME' ]; 
+			set_site_transient( $hash_lock_key, 1 );
+			set_site_transient( MINIFY_INCR_KEY, $incr );
+		}
+		
+		if ( !empty( $locked ) && !empty( $prev ) )
+			$incr = $prev;
+		
+		$transient = get_site_transient( 'minify:' . $type . '-output:' . $hash . ':' . $incr );
+		if ( empty( $transient ) ) {
+			$locking = true;
+			set_site_transient( $hash_lock_key, 1 );
+
+			$buffer = array();
+			$added = array();
+			foreach ( $files as $file ) {
+				
+				//Get the filesystem path to the local file	
+				$local = $this->check_path( $file );
+
+				if ( $local ) {
+					//Local file!
+					$buffer[] = file_get_contents( $local );
+				} else {
+					//Remote file!
+					$buffer[] = wp_remote_retrieve_body( wp_remote_get( $file ) );
+				}	
+			}
+			
+			$raw = trim( join( "\n", $buffer ) );
+			
+			switch( $type ) {
+				case 'js' :
+					require_once( plugin_dir_path( __FILE__ ) . '/JSMin.php' );
+					$min = trim( JSMin::minify( $raw ) );
+					break;
+				case 'css' :
+					require_once( plugin_dir_path( __FILE__ ) . 'CSSMin.php' );
+					$min = trim( CssMin::minify( $raw, array( 'ConvertLevel3Properties' => true ) ) );
+					break;
+			}
+
+			$min = $raw;
+
+			update_site_option( 'minify:' . $type . ':' . $hash . ':' . $incr, $files );
+			set_site_transient( 'minify:' . $type . '-output:' . $hash . ':' . $incr, $min );
+		}
+		
+		if ( $output ) {
+			$min = get_site_transient( 'minify:' . $type . '-output:' . $hash . ':' . $incr );		  
+			echo $min;
+		} else {
+			$fmt = $type . '_fmt';
+			return sprintf( $this->$fmt, content_url( '/cache/' . MINIFY_SLUG . '-' . $hash . '-' . $incr . '.' . $type ) );			 
+		}
+		
+		if ( $locking )
+			delete_site_transient( $hash_lock_key );
+	
+	}	
+
+	/**
+	 *	Turn on output buffering in wp_head() / wp_footer
+	 *	this action has highest priority
+	 *
+	 */
+	public function start_buffer() {
+		ob_start();
+	}
+
+	/**
+	 * Check if a URL is a local file. If so, return the relative path to the file
+	 *
+	 */
+	public function check_path( $file ) {
+		$relative = parse_url( $file, PHP_URL_PATH );
+		
+		if ( 0 !== strpos( $relative, '/wp-' ) )
+			$relative = substr( $relative, strpos( $relative, '/wp-' ) );
+		
+		$full = $_SERVER[ 'DOCUMENT_ROOT' ] . $relative;
+		if ( is_file( $full ) )
+			return $full;
+
+		$wp = rtrim( ABSPATH, '/' ) . $relative;
+		if ( is_file( $wp ) )
+			return $wp;
+
+		return false;
+	}
+
+	/**
+	 * Create a hash based on an array of files
+	 *
+	 */
+	public function hash_files( $files ) {
+		$added = array();
+		foreach ( $files as $f ) {
+			$file = $this->check_path( $f );
+
+			if ( $file ) {
+				$added[] = $file;
+			}
+		}
+		
+		return substr( md5( join( '', $added ) ), 0, 20 );
+	}
+
 }
