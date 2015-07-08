@@ -194,8 +194,6 @@ class Minify {
 					break;
 			}
 
-			$min = $raw;
-
 			update_site_option( 'minify:' . $type . ':' . $hash . ':' . $incr, $files );
 			set_site_transient( 'minify:' . $type . '-output:' . $hash . ':' . $incr, $min );
 		}
