@@ -189,7 +189,7 @@ class Minify {
 					$min = trim( JSMin::minify( $raw ) );
 					break;
 				case 'css' :
-					require_once( plugin_dir_path( __FILE__ ) . 'CSSMin.php' );
+					require_once( plugin_dir_path( __FILE__ ) . '/CSSMin.php' );
 					$min = trim( CssMin::minify( $raw, array( 'ConvertLevel3Properties' => true ) ) );
 					break;
 			}
