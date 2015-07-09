@@ -25,6 +25,7 @@ define( 'MINIFY_INCR_KEY_PREV', MINIFY_SLUG . ':prev-incr' );
 if( is_admin() )
 	require_once( plugin_dir_path( __FILE__ ) . '/admin.php' );
 
+//@TODO Make this a static method. Downside: lazy
 if( !is_admin() && defined( 'MINIFY_ENABLED' ) && MINIFY_ENABLED )
 	$minify = new Minify;
 
@@ -79,7 +80,7 @@ class Minify {
 		$css = '/<link.*?stylesheet.*?href=[\'|"]([^\'|"]+)[\'|"][^>]+?>/';
 		preg_match_all( $css, $html, $styles );
 		
-		if ( !empty( $styles[1] ) ) {
+		if ( !empty( $styles[ 1 ] ) ) {
 			/**
 			 * Styles exist, strip them from the buffer
 			 *
@@ -91,6 +92,8 @@ class Minify {
 			 */
 			$hash = $this->hash_files( $styles[1] );
 			$styles = $this->combine( $hash, $styles[1], 'css' );
+		} else {
+			$styles = '';
 		}
 	
 		/**
@@ -100,7 +103,7 @@ class Minify {
 		$js = '/<script.*src=[\'|"]([^"|\']+)[\'|"].*><\/script>/';
 		preg_match_all( $js, $html, $scripts );
 
-		if ( !empty( $scripts[1] ) ) {
+		if ( !empty( $scripts[ 1 ] ) ) {
 			/**
 			 * Scripts exist, strip them from the buffer
 			 *
@@ -113,6 +116,8 @@ class Minify {
 			$hash = $this->hash_files( $scripts[1] );
 			$scripts = $this->combine( $hash, $scripts[1], 'js' );
 			
+		} else {
+			$scripts = '';
 		}
 		
 		/* Print the scripts first if in the header, last if in the footer */
@@ -160,8 +165,8 @@ class Minify {
 		if ( !empty( $locked ) && !empty( $prev ) )
 			$incr = $prev;
 		
-		$transient = get_site_transient( 'minify:' . $type . '-output:' . $hash . ':' . $incr );
-		if ( empty( $transient ) ) {
+		$min = get_site_transient( 'minify:' . $type . '-output:' . $hash . ':' . $incr );
+		if ( empty( $min ) ) {
 			$locking = true;
 			set_site_transient( $hash_lock_key, 1 );
 
@@ -185,12 +190,12 @@ class Minify {
 			
 			switch( $type ) {
 				case 'js' :
-					require_once( plugin_dir_path( __FILE__ ) . '/JSMin.php' );
-					$min = trim( JSMin::minify( $raw ) );
+					require_once( plugin_dir_path( __FILE__ ) . '/JShrink.php' );
+					$min = trim(  \JShrink\Minifier::minify( $raw, array( 'flaggedComments' => false ) ) );
 					break;
 				case 'css' :
-					require_once( plugin_dir_path( __FILE__ ) . '/CSSMin.php' );
-					$min = trim( CssMin::minify( $raw, array( 'ConvertLevel3Properties' => true ) ) );
+					require_once( plugin_dir_path( __FILE__ ) . '/CSSMinify.php' );
+					$min = Minify_CSS_Compressor::process( $raw );
 					break;
 			}
 
@@ -198,8 +203,7 @@ class Minify {
 			set_site_transient( 'minify:' . $type . '-output:' . $hash . ':' . $incr, $min );
 		}
 		
-		if ( $output ) {
-			$min = get_site_transient( 'minify:' . $type . '-output:' . $hash . ':' . $incr );		  
+		if ( $output ) {	  
 			echo $min;
 		} else {
 			$fmt = $type . '_fmt';

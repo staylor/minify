@@ -17,8 +17,8 @@ If you're using Apache, add this to your .htaccess
 <code>RewriteRule ^([_0-9a-zA-Z-]+)?/?wp-content/cache/minify-(.+)-(.*).(css|js)$ /wp-content/plugins/minify/make.php?hash=$2&type=$4&incr=$3&site=$1 [L]</code>
 
 If you're using Nginx, add this to your server block:
-<code>location ~ ^([_0-9a-zA-Z-]+)?/?wp-content/cache/minify-(.+)-(.*).(css|js)$ {
-	try_files $uri /wp-content/plugins/minify/make.php?hash=$2&type=$4&incr=$3&site=$1;
+<code>location ~ ^/wp-content/cache/minify-(.+)-(.*).(css|js)$ {
+	try_files $uri /wp-content/plugins/minify/make.php?hash=$1&type=$3&incr=$2
 }</code>
 
 == Installation ==
