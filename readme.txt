@@ -2,8 +2,8 @@
 Contributors: wonderboymusic
 Tags: assets, js, css, minify, performance
 Requires at least: 3.0
-Tested up to: 3.4
-Stable Tag: 0.2
+Tested up to: 4.2.2
+Stable Tag: 0.3
 
 Automagically concatenates JS and CSS files that are output in wp_head() and wp_footer()
 
@@ -13,8 +13,13 @@ Similar to what we use on eMusic - this software is still experimental, but take
 
 Automagically concatenates JS and CSS files that are output in wp_head() and wp_footer() - stores / serves them from Memcached (if installed) or Database. In a load-balanced environment, the generation of flat files can be expensive and hard to distribute. Minify takes advantage of Memcached and Site Options / Transients to do the work once and share it among all servers in your cluster. File names are dynamically-generated to allow cache-busting of a CDN like Akamai that doesn't always cache-bust by query string.
 
-New .htaccess rule!
+If you're using Apache, add this to your .htaccess
 <code>RewriteRule ^([_0-9a-zA-Z-]+)?/?wp-content/cache/minify-(.+)-(.*).(css|js)$ /wp-content/plugins/minify/make.php?hash=$2&type=$4&incr=$3&site=$1 [L]</code>
+
+If you're using Nginx, add this to your server block:
+<code>location ~ ^/wp-content/cache/minify-(.+)-(.*).(css|js)$ {
+	try_files $uri /wp-content/plugins/minify/make.php?hash=$1&type=$3&incr=$2
+}</code>
 
 == Installation ==
 
@@ -38,7 +43,6 @@ If you don't want to use Memcached:
 
 = 0.2 =
 * change your .htaccess rule to: RewriteRule ^([_0-9a-zA-Z-]+)?/?wp-content/cache/minify-(.+)-(.*).(css|js)$ /wp-content/plugins/minify/make.php?hash=$2&type=$4&incr=$3&site=$1 [L]
-
 
 == Upgrade Notice ==
 
