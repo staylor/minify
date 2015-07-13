@@ -131,6 +131,52 @@ class Minify {
 
 	}
 	
+	public function do_minify( $hash, $files = array(), $type = 'js', $incr = 1 ) {
+	
+		$min = get_site_transient( 'minify:' . $type . '-output:' . $hash . ':' . $incr );
+		
+		if( !empty( $min ) )
+			return $min;
+			
+		error_log( 'Doing minification' );
+		
+		$buffer = array();
+		foreach ( $files as $file ) {
+		
+			if( substr( $file, 0, 2 ) == '//' )
+				$file = 'https:' . $file;
+			
+			//Get the filesystem path to the local file	
+			$local = $this->check_path( $file );
+
+			if ( $local ) {
+				//Local file!
+				$buffer[] = file_get_contents( $local );
+			} else {
+				//Remote file!
+				$buffer[] = wp_remote_retrieve_body( wp_remote_get( $file ) );
+			}	
+		}
+		
+		$raw = trim( join( "\n", $buffer ) );
+		
+		switch( $type ) {
+			case 'js' :
+				require_once( plugin_dir_path( __FILE__ ) . '/JShrink.php' );
+				$min = trim(  \JShrink\Minifier::minify( $raw, array( 'flaggedComments' => false ) ) );
+				break;
+			case 'css' :
+				require_once( plugin_dir_path( __FILE__ ) . '/CSSMinify.php' );
+				$min = Minify_CSS_Compressor::process( $raw );
+				break;
+		}
+
+		set_site_transient( 'minify:' . $type . '-output:' . $hash . ':' . $incr, $min );
+		
+		return $min;
+	
+	}
+	
 	/**
 	 * One function to combine the JS or CSS files
 	 *
@@ -147,71 +193,19 @@ class Minify {
 		//Get the hash for the files
 		if( empty( $hash ) )
 			$hash = $this->hash_files( $files );
-			
-		$locking = false;
-		$hash_lock_key = 'minify-' . $type . '-locked-' . $hash;
-		$locked = get_site_transient( $hash_lock_key );
 		
 		$incr = get_site_option( MINIFY_INCR_KEY );
-		$prev = get_site_option( MINIFY_INCR_KEY_PREV );
+		$incr = !empty( $incr ) ? $incr : 1;
 		
-		if ( empty( $incr ) ) {
-			$locking = true;
-			$incr = $_SERVER[ 'REQUEST_TIME' ]; 
-			set_site_transient( $hash_lock_key, 1 );
-			set_site_transient( MINIFY_INCR_KEY, $incr );
-		}
-		
-		if ( !empty( $locked ) && !empty( $prev ) )
-			$incr = $prev;
-		
-		$min = get_site_transient( 'minify:' . $type . '-output:' . $hash . ':' . $incr );
-		if ( empty( $min ) ) {
-			$locking = true;
-			set_site_transient( $hash_lock_key, 1 );
-
-			$buffer = array();
-			$added = array();
-			foreach ( $files as $file ) {
-				
-				//Get the filesystem path to the local file	
-				$local = $this->check_path( $file );
-
-				if ( $local ) {
-					//Local file!
-					$buffer[] = file_get_contents( $local );
-				} else {
-					//Remote file!
-					$buffer[] = wp_remote_retrieve_body( wp_remote_get( $file ) );
-				}	
-			}
-			
-			$raw = trim( join( "\n", $buffer ) );
-			
-			switch( $type ) {
-				case 'js' :
-					require_once( plugin_dir_path( __FILE__ ) . '/JShrink.php' );
-					$min = trim(  \JShrink\Minifier::minify( $raw, array( 'flaggedComments' => false ) ) );
-					break;
-				case 'css' :
-					require_once( plugin_dir_path( __FILE__ ) . '/CSSMinify.php' );
-					$min = Minify_CSS_Compressor::process( $raw );
-					break;
-			}
-
+		if( get_site_option( 'minify:' . $type . ':' . $hash . ':' . $incr ) != $files )
 			update_site_option( 'minify:' . $type . ':' . $hash . ':' . $incr, $files );
-			set_site_transient( 'minify:' . $type . '-output:' . $hash . ':' . $incr, $min );
-		}
 		
 		if ( $output ) {	  
-			echo $min;
+			echo $this->do_minify( $hash, $files, $type, $incr );
 		} else {
 			$fmt = $type . '_fmt';
 			return sprintf( $this->$fmt, content_url( '/cache/' . MINIFY_SLUG . '-' . $hash . '-' . $incr . '.' . $type ) );			 
 		}
-		
-		if ( $locking )
-			delete_site_transient( $hash_lock_key );
 	
 	}	
 
@@ -255,7 +249,17 @@ class Minify {
 			$file = $this->check_path( $f );
 
 			if ( $file ) {
+			
+				//check_path(); returns the path to the file, which is nice because
+				//it allows different sites to share hashes. But we also want to include
+				//query strings, because they include versioning
+				$query_string = parse_url( $f, PHP_URL_QUERY );
+				$file = !empty( $query_string ) ? $file . '?' . $query_string : $file;
+				
 				$added[] = $file;
+			} else {
+				//Not a local file, but we still want to include it in the hash
+				$added[] = $f;
 			}
 		}
 		

@@ -59,19 +59,6 @@ $list = headers_list();
 if ( !empty( $list ) )
     header_remove();
 
-$now = get_site_option( MINIFY_INCR_KEY );
-$prev = get_site_option( MINIFY_INCR_KEY_PREV );
-/**
- * Check to see if the script we are requesting is locked
- * If so, serve the last cached script for the requested hash 
- * 
- */
-$hash_lock_key = 'minify-' . $type . '-locked-' . $hash;
-$locked = get_site_transient( $hash_lock_key );
-
-if ( !in_array( $incr, array( $now, $prev ) ) )
-    $incr = $locked ? $prev : $now;
-
 /**
  * Serve JS or CSS file
  *  
@@ -92,6 +79,7 @@ if ( empty( $src ) ) {
 	if ( !empty( $files ) ) {
 		$minify->combine( $hash, $files, $type, true );
 	} else {
+		http_response_code( 500 );
 		error_log( 'Minified files of type ' . $type . ' with hash = ' . $hash . ' not found...' );
 	}
 } else {
