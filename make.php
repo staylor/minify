@@ -29,6 +29,7 @@ if ( !is_file( $load_path ) )
 	die( 'WHERE IS WORDPRESS? Please edit: ' . __FILE__ );
 
 require_once( $load_path );
+require_once( ABSPATH . WPINC . '/formatting.php'  );
 /**
  * SHORTINIT does NOT load plugins, so load our base plugin file
  *  
@@ -50,7 +51,7 @@ $prev = get_site_option( MINIFY_INCR_KEY_PREV );
  * If so, serve the last cached script for the requested hash 
  * 
  */
-$hash_lock_key = 'minify-' . $type . '-locked-' . $hash;
+$hash_lock_key = 'minify-' . $type . '-locked-' . substr( $hash, 0, 30 );
 $locked = get_site_transient( $hash_lock_key );
 
 if ( !in_array( $incr, array( $now, $prev ) ) )
@@ -63,7 +64,7 @@ if ( !in_array( $incr, array( $now, $prev ) ) )
 switch ( $type ) {
 case 'js':
     header( 'Content-type: application/x-javascript; charset=UTF-8' );
-    $src = get_site_transient( 'minify:scripts-output:' . $hash . ':' . $incr );
+    $src = get_site_transient( 'minify:scripts-output:' . substr( $hash, 0, 15 ) . ':' . $incr );
 
     if ( empty( $src ) ) {
         $scripts = get_site_option( 'minify:scripts:' . $hash . ':' . $incr );
@@ -79,7 +80,7 @@ case 'js':
     
 case 'css':
     header( 'Content-type: text/css; charset=UTF-8' );
-    $src = get_site_transient( 'minify:styles-output:' . $hash . ':' . $incr );
+    $src = get_site_transient( 'minify:styles-output:' . substr( $hash, 0, 15 ) . ':' . $incr );
 
     if ( empty( $src ) ) {
         $styles = get_site_option( 'minify:styles:' . $hash . ':' . $incr );
