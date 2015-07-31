@@ -51,13 +51,10 @@ if( !defined( 'get_bloginfo' ) ) {
 
 require_once( dirname( __FILE__ ) . '/minify.php' );
 
-/**
- * Ditch any HTTP headers that happened to get added
- *  
- */
-$list = headers_list();
-if ( !empty( $list ) )
-    header_remove();
+header( 'Last-Modified: ' . gmdate( 'D, d M Y H:i:s', $minify->cache_ttl ) . ' GMT', true );
+header( 'Cache-Control: max-age=' . $minify->cache_ttl . ', public', true );
+header( 'Expires: ' . gmdate( 'D, d M Y H:i:s', time() + $minify->cache_ttl ) . ' GMT', true );
+header( 'Pragma: public', true );
 
 /**
  * Serve JS or CSS file
@@ -65,10 +62,10 @@ if ( !empty( $list ) )
  */
 switch ( $type ) {
 case 'js':
-    header( 'Content-type: application/x-javascript; charset=UTF-8' );
+    header( 'Content-type: application/x-javascript; charset=UTF-8', true );
     break;
 case 'css':
-    header( 'Content-type: text/css; charset=UTF-8' );
+    header( 'Content-type: text/css; charset=UTF-8', true );
     break;
 }
 
