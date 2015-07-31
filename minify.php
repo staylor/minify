@@ -40,6 +40,12 @@ class Minify {
 	public $js_fmt = "\n<script type=\"text/javascript\" src=\"%s\"></script>\n";
 	
 	/**
+	 * Cache for 365 days by default
+	 *
+	 */
+	public $cache_ttl = 31536000;
+	
+	/**
 	 * Register these actions as soon as we load the plugin
 	 */
 	function __construct() {
@@ -48,12 +54,16 @@ class Minify {
 		//buffer that we'll check for scripts
 		add_action( 'wp_head', array( $this, 'start_buffer' ), 0 );
 		add_action( 'wp_footer', array( $this, 'start_buffer' ), 0 );
+		add_action( 'mobile_header', array( $this, 'start_buffer' ), 0 );
+		add_action( 'mobile_footer', array( $this, 'start_buffer' ), 0 );
 
 		//7 9s
 		//As the (hopefully) last action, grab the output, find the scripts and styles
 		//and replace them
 		add_action( 'wp_head', array( $this, 'replace' ), 99999999 );
 		add_action( 'wp_footer', array( $this, 'replace' ), 99999999 );
+		add_action( 'mobile_header', array( $this, 'replace' ), 99999999 );
+		add_action( 'mobile_footer', array( $this, 'replace' ), 99999999 );
 
 	}
 	
@@ -131,6 +141,62 @@ class Minify {
 
 	}
 	
+	/**
+	 * Take a URL and make an absolute path
+	 *
+	 */
+	public function make_absolute_path( $url, $context = 'local' ) {
+
+		//Get scheme, hostname, port, username, password, path, arg and anchor from the asset URL
+		$pieces = parse_url( $url );
+		//Get the pieces of the path to the asset URL, from which we want the dirname
+		$pathinfo = pathinfo( $pieces[ 'path' ] );
+		
+		//If we're making a remote absolute URL, include the protocol relative URL
+		//Obvs we shouldn't be using a remote CDN that doesn't support HTTPS
+		$this->absolute_path = ( 'remote' == $context ? '//' . $pieces[ 'host' ] : '' ) . $pathinfo[ 'dirname' ];
+	}
+	
+	
+	/**
+	 * Find every time we're referencing the URL of an asset
+	 * Requires that you've set $this->absolute_path to something to replace it to
+	 *
+	 */
+	public function replace_relative_paths( $content = false ) {
+	
+		if( empty( $content ) || empty( $this->absolute_path ) )
+			return $content;
+		
+		return preg_replace_callback( '#url\( ?(\'|")?(?P<url>.*?)(\'|")? ?\)#', array( $this, 'paths_callback' ), $content );
+	
+	}
+	
+	
+	/**
+	 * Replace our relative asset URLs (starting with ./ or ../) with more absolute URLs
+	 * (starting with /, based on the path to the original CSS or JS file)
+	 *
+	 */
+	public function paths_callback( $matches ) {
+	
+		
+		//We don't want to match data URLs or absolute paths — those that are a fully
+		//qualified URL or those that start with a slash
+		foreach( array( 'http:', 'https:', '/', 'data:', ) as $context ) {
+			if( substr( $matches[ 'url' ], 0, strlen( $context ) ) == $context )
+				return $matches[ 0 ];
+		}
+		
+		return str_replace( $matches[ 'url' ], $this->absolute_path . '/' . $matches[ 'url' ], $matches[ 0 ] );
+		
+	}
+	
+	
+	/**
+	 * The function to actually minify the files, based on an array of files
+	 *
+	 */
 	public function do_minify( $hash, $files = array(), $type = 'js', $incr = 1 ) {
 	
 		$min = get_site_transient( 'minify:' . $type . '-output:' . $hash . ':' . $incr );
@@ -151,10 +217,13 @@ class Minify {
 
 			if ( $local ) {
 				//Local file!
-				$buffer[] = file_get_contents( $local );
+				//We only replace relative paths in local files
+				$this->make_absolute_path( $file );
+				$buffer[] = $this->replace_relative_paths( file_get_contents( $local ) );
 			} else {
 				//Remote file!
-				$buffer[] = wp_remote_retrieve_body( wp_remote_get( $file ) );
+				$this->make_absolute_path( $file, 'remote' );
+				$buffer[] = $this->replace_relative_paths( wp_remote_retrieve_body( wp_remote_get( $file ) ) );
 			}	
 		}
 		
